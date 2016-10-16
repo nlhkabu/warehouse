@@ -61,7 +61,7 @@ default:
 	python3.5 -m venv .state/env
 
 	# install/upgrade general requirements
-	.state/env/bin/python -m pip install --upgrade 'pip<8.1.2' setuptools wheel
+	.state/env/bin/python -m pip install --upgrade pip setuptools wheel
 
 	# install various types of requirements
 	.state/env/bin/python -m pip install -r requirements/dev.txt
@@ -115,13 +115,18 @@ saucelabs:
 lint: .state/env/pyvenv.cfg
 	$(BINDIR)/flake8 .
 	$(BINDIR)/doc8 --allow-long-titles README.rst CONTRIBUTING.rst docs/ --ignore-path docs/_build/
-	$(BINDIR)/html_lint.py --disable=optional_tag,names,protocol `find ./warehouse/templates -path ./warehouse/templates/legacy -prune -o -name '*.html' -print`
-	./node_modules/.bin/eslint 'warehouse/static/js/**'
+	# TODO: Figure out a solution to https://github.com/deezer/template-remover/issues/1
+	#       so we can remove extra_whitespace from below.
+	$(BINDIR)/html_lint.py --disable=optional_tag,names,protocol,extra_whitespace `find ./warehouse/templates -path ./warehouse/templates/legacy -prune -o -name '*.html' -print`
 
+	./node_modules/.bin/eslint 'warehouse/static/js/**'
 
 docs: .state/env/pyvenv.cfg
 	$(MAKE) -C docs/ doctest SPHINXOPTS="-W" SPHINXBUILD="$(BINDIR)/sphinx-build"
 	$(MAKE) -C docs/ html SPHINXOPTS="-W" SPHINXBUILD="$(BINDIR)/sphinx-build"
+
+licenses:
+	bin/licenses
 
 export DEPCHECKER
 deps: .state/env/pyvenv.cfg

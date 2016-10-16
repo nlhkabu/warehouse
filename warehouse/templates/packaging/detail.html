@@ -55,6 +55,8 @@
 
 {% block title %}{{ release.project.name }}{% endblock %}
 
+{% block description %}{{ release.summary }}{% endblock %}
+
 {% block canonical_url %}{{ request.route_url('packaging.project', name=release.project.name) }}{% endblock %}
 
 {% block content %}
@@ -64,7 +66,13 @@
     <p class="package-header__description">{% if release.summary %}{{ release.summary }}{% endif %}</p>
     {% if files %}
     <p class="package-header__pip-instructions">
-      <span id="pip-command">pip install {{ release.project.normalized_name }}</span>
+      <span id="pip-command">
+      {% if request.matched_route.name == "packaging.release" %}
+        pip install {{ release.project.normalized_name }}=={{ release.version }}
+      {% else %}
+        pip install {{ release.project.normalized_name }}
+      {% endif %}
+      </span>
       <a class="-js-copy-pip-command tooltipped tooltipped-s" data-clipboard-target="#pip-command" aria-label="Copy to clipboard" data-original-label="Copy to clipboard">
         <i class="fa fa-copy"></i>
         <span class="sr-only">Copy PIP instructions<span>
@@ -120,22 +128,25 @@
             <a class="-js-vertical-tab vertical-tabs__tab vertical-tabs__tab--is-active" href="#description">Project Description</a>
             {# <a class="-js-vertical-tab vertical-tabs__tab" href="#dependencies">Dependencies</a> #}
             <a class="-js-vertical-tab vertical-tabs__tab" href="#history">Release History</a>
-            <a class="-js-vertical-tab vertical-tabs__tab" href="#statistics">Download Statistics</a>
+            {# <a class="-js-vertical-tab vertical-tabs__tab" href="#statistics">Download Statistics</a> #}
             {% if files %}
               <a class="-js-vertical-tab vertical-tabs__tab" href="#files">Download Files</a>
             {% endif %}
         </div>
 
-        <div class="sidebar-section sidebar-section--maintainers">
-          <h3 class="sidebar-section__title">Maintainers</h3>
-          {% for maintainer in maintainers %}
-            <a href="{{ request.route_path('accounts.profile', username=maintainer.username) }}"><img src="{{ gravatar(maintainer.email, size=50) }}" height="50" width="50" alt="{{ maintainer.username}}"></a>
-          {% endfor %}
-        </div>
-
         {% if release.has_meta %}
         <div class="sidebar-section">
           <h3 class="sidebar-section__title">Meta</h3>
+          {% if release.author_email %}
+            <p>Author: <a href="mailto:{{ release.author_email }}">{{ release.author or release.author_email }}</a></p>
+          {% elif release.author %}
+            <p>Author: {{ release.author }}</p>
+          {% endif %}
+          {% if release.maintainer_email %}
+            <p>Maintainer: <a href="mailto:{{ release.maintainer_email }}">{{ release.maintainer or release.maintainer_email }}</a></p>
+          {% elif release.maintainer %}
+            <p>Maintainer: {{ release.maintainer }}</p>
+          {% endif %}
           {% if release.keywords %}
           <p class="tags"><i class="fa fa-tags"></i>
             {% for keyword in release.keywords | format_tags %}
@@ -147,6 +158,13 @@
           {% endif %}
         </div>
         {% endif %}
+
+        <div class="sidebar-section sidebar-section--maintainers">
+          <h3 class="sidebar-section__title">Maintainers</h3>
+          {% for maintainer in maintainers %}
+            <a href="{{ request.route_path('accounts.profile', username=maintainer.username) }}"><img src="{{ gravatar(maintainer.email, size=50) }}" height="50" width="50" alt="{{ maintainer.username}}"></a>
+          {% endfor %}
+        </div>
 
         {% if release.classifiers %}
         <div class="sidebar-section classifiers">
@@ -260,6 +278,7 @@
         </div>
 
         {# Tab: Statistics #}
+        {# Note: Commented out statistics tab
         <a class="-js-vertical-tab-mobile-heading vertical-tabs__tab vertical-tabs__tab--mobile" href="#statistics">Download Statistics</a>
         <div id="statistics" class="-js-vertical-tab-content vertical-tabs__content">
           <h2>Download Statistics</h2>
@@ -280,6 +299,7 @@
             <div class="download-graph__graph">TODO: Bar chart here showing downloads over time</div>
           </div>
         </div>
+        #}
 
         {% if files %}
           {# Tab: Downloads #}
@@ -293,7 +313,7 @@
                 <tr>
                   <th class="downloads-table__filename">
                     File Name &amp; Checksum
-                    <a href="TODO">
+                    <a href="https://pip.pypa.io/en/stable/reference/pip_install/#hash-checking-mode">
                       <i class="fa fa-question-circle"></i>
                       <span class="sr-only">SHA256 Checksum Help</span>
                     </a>
@@ -323,29 +343,7 @@
                     {% endif %}
                   </td>
                   <td>
-                    {# TODO: This should ideally be part of an enum somewhere or
-                       otherwise defined somewhere other than a big if else
-                       chain inside of a template
-                    #}
-                    {% if file.packagetype == "bdist_dmg" %}
-                      OSX Disk Image
-                    {% elif file.packagetype == "bdist_dumb" %}
-                      "Dumb" Binary
-                    {% elif file.packagetype == "bdist_egg" %}
-                      Egg
-                    {% elif file.packagetype == "bdist_msi" %}
-                      Windows MSI Installer
-                    {% elif file.packagetype == "bdist_rpm" %}
-                      RPM
-                    {% elif file.packagetype == "bdist_wheel" %}
-                      Wheel
-                    {% elif file.packagetype == "bdist_wininst" %}
-                      Windows Installer
-                    {% elif file.packagetype == "sdist" %}
-                      Source
-                    {% else %}
-                      {{ file.packagetype }}
-                    {% endif %}
+                    {{ file.packagetype|format_package_type }}
                   </td>
                   <td>{{ file.upload_time|format_date() }}</td>
                 </tr>

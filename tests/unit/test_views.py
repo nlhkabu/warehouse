@@ -24,7 +24,7 @@ from pyramid.httpexceptions import (
 from warehouse import views
 from warehouse.views import (
     SEARCH_BOOSTS, SEARCH_FIELDS, current_user_indicator, forbidden, health,
-    httpexception_view, index, robotstxt, search
+    httpexception_view, index, robotstxt, opensearchxml, search
 )
 
 from ..common.db.accounts import UserFactory
@@ -67,6 +67,11 @@ class TestForbiddenView:
 def test_robotstxt(pyramid_request):
     assert robotstxt(pyramid_request) == {}
     assert pyramid_request.response.content_type == "text/plain"
+
+
+def test_opensearchxml(pyramid_request):
+    assert opensearchxml(pyramid_request) == {}
+    assert pyramid_request.response.content_type == "text/xml"
 
 
 class TestIndex:
@@ -293,6 +298,12 @@ class TestSearch:
         classifier2 = ClassifierFactory.create(classifier="foo :: baz")
         classifier3 = ClassifierFactory.create(classifier="fiz :: buz")
 
+        project = ProjectFactory.create()
+        release1 = ReleaseFactory.create(project=project)
+        release1.created = datetime.date(2011, 1, 1)
+        release1._classifiers.append(classifier1)
+        release1._classifiers.append(classifier2)
+
         page_obj = pretend.stub(page_count=(page or 1) + 10)
         page_cls = pretend.call_recorder(lambda *a, **kw: page_obj)
         monkeypatch.setattr(views, "ElasticsearchPage", page_cls)
@@ -301,19 +312,24 @@ class TestSearch:
         url_maker_factory = pretend.call_recorder(lambda request: url_maker)
         monkeypatch.setattr(views, "paginate_url_factory", url_maker_factory)
 
-        assert search(db_request) == {
+        search_view = search(db_request)
+        assert search_view == {
             "page": page_obj,
             "term": params.get("q", ''),
             "order": params.get("o", ''),
             "applied_filters": params.getall("c"),
             "available_filters": [
-                ('fiz', [classifier3.classifier]),
                 ('foo', [
                     classifier1.classifier,
                     classifier2.classifier,
                 ])
             ],
         }
+        assert (
+            ("fiz", [
+                classifier3.classifier
+            ]) not in search_view["available_filters"]
+        )
         assert page_cls.calls == [
             pretend.call(es_query, url_maker=url_maker, page=page or 1),
         ]

@@ -22,6 +22,7 @@
     <meta name="availableLanguages" content="en">
 
     <title>{% block title_base %}{% block title %}{% endblock %}{% if self.title() %} · {% endif %}{{ request.registry.settings['site.name'] }}{% endblock %}</title>
+    <meta name="description" content="{% block description %}The Python Package Index (PyPI) is a repository of software for the Python programming language.{% endblock %}">
 
     <link rel="stylesheet" href="{{ request.static_path('warehouse:static/dist/css/warehouse.css') }}">
     <link rel="stylesheet" href="{{ request.static_path('warehouse:static/dist/css/font-awesome.css') }}">
@@ -34,6 +35,29 @@
     {% if self.canonical_url() %}
     <link rel="canonical" href="{% block canonical_url %}{% endblock %}">
     {% endif %}
+
+    <meta property="og:url" content="{{ request.current_route_url() }}">
+    <meta property="og:site_name" content="PyPI">
+    <meta property="og:type" content="website">
+    <meta property="og:image" content="{{ request.static_url('warehouse:static/dist/images/logo-large.svg') }}">
+    <meta property="og:title" content="{{ self.title()|default('Python Package Index') }}">
+    <meta property="og:description" content="{{ self.description() }}">
+
+    <link rel="search" type="application/opensearchdescription+xml" title="PyPI" href="{{ request.route_path('opensearch.xml') }}">
+
+    {# All of our Javascript should be loaded using the async attribute so it's
+     # fine to have it in the header. This will allow the browser to start
+     # downloading it ASAP while still not blocking the parser.
+     #}
+    <script async
+            {% if request.registry.settings.get("ga.tracking_id") -%}
+            data-ga-id="{{ request.registry.settings['ga.tracking_id'] }}"
+            {% endif -%}
+            src="{{ request.static_path('warehouse:static/dist/js/warehouse.js') }}">
+    </script>
+    {% block extra_js %}
+    {% endblock %}
+    <script async src="https://www.google-analytics.com/analytics.js"></script>
   </head>
 
   <body>
@@ -98,7 +122,9 @@
           <li>
             <h3>About PyPI</h3>
           </li>
-          <li><a href="TODO">Status: Operational</a></li>
+          {% if request.registry.settings.get("statuspage.url") %}
+          <li><a href="https://status.python.org/">Status: <span data-statuspage-domain="{{ request.registry.settings['statuspage.url'] }}">All Systems Operational</span></a></li>
+          {% endif %}
           <li><a href="{{ request.route_path('security') }}">Security Policy</a></li>
           <li><a href="{{ request.route_path('sponsors') }}">Our Sponsors</a></li>
         </ul>
@@ -116,24 +142,11 @@
 
       <div class="footer__text">
         <p>Developed and maintained by the Python community, for the Python community.</p>
-        <p>© {{ now()|format_date('yyyy') }} Python Software Foundation. <a href="{{ request.route_path('legal') }}">Legal Statements</a></p>
+        <p>© {{ now()|format_date('yyyy') }} Python Software Foundation. <a href="https://www.python.org/about/legal/">Legal Statements</a></p>
       </div>
     </footer>
 
     {% include "warehouse:templates/includes/sponsors.html" %}
-
-    <script async
-            {% if request.registry.settings.get("ga.tracking_id") -%}
-            data-ga-id="{{ request.registry.settings['ga.tracking_id'] }}"
-            {% endif -%}
-            src="{{ request.static_path('warehouse:static/dist/js/warehouse.js') }}">
-    </script>
-    <script async src="{{ request.static_path('warehouse:static/dist/js/main.js') }}"></script>
-
-    {% block extra_js %}
-    {% endblock %}
-
-    <script async src="//www.google-analytics.com/analytics.js"></script>
   </body>
 
 </html>

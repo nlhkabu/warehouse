@@ -24,7 +24,7 @@ from pyramid_rpc.xmlrpc import XMLRPCRenderer
 
 from warehouse import __commit__
 from warehouse.utils.static import ManifestCacheBuster
-from warehouse.utils.wsgi import ProxyFixer, VhmRootRemover
+from warehouse.utils.wsgi import ProxyFixer, VhmRootRemover, HostRewrite
 
 
 class Environment(enum.Enum):
@@ -142,9 +142,17 @@ def configure(settings=None):
     maybe_set(settings, "camo.url", "CAMO_URL")
     maybe_set(settings, "camo.key", "CAMO_KEY")
     maybe_set(settings, "docs.url", "DOCS_URL")
+    maybe_set(settings, "mail.host", "MAL_HOST")
+    maybe_set(settings, "mail.port", "MAIL_PORT")
+    maybe_set(settings, "mail.username", "MAIL_USERNAME")
+    maybe_set(settings, "mail.password", "MAIL_PASSWORD")
+    maybe_set(settings, "mail.sender", "MAIL_SENDER")
     maybe_set(settings, "ga.tracking_id", "GA_TRACKING_ID")
+    maybe_set(settings, "statuspage.url", "STATUSPAGE_URL")
     maybe_set_compound(settings, "files", "backend", "FILES_BACKEND")
     maybe_set_compound(settings, "origin_cache", "backend", "ORIGIN_CACHE")
+
+    settings.setdefault("mail.ssl", True)
 
     # Add the settings we use when the environment is set to development.
     if settings["warehouse.env"] == Environment.development:
@@ -193,6 +201,14 @@ def configure(settings=None):
     # We'll want to use Jinja2 as our template system.
     config.include("pyramid_jinja2")
 
+    # Including pyramid_mailer for sending emails through SMTP.
+    # Lower environments (< prod) shouldn't send the actual email's, so we are
+    # adding pyramid_mailer.debug to route the email's to disk.
+    if config.registry.settings["warehouse.env"] == Environment.production:
+        config.include("pyramid_mailer")
+    else:
+        config.include("pyramid_mailer.debug")
+
     # We want to use newstyle gettext
     config.add_settings({"jinja2.newstyle": True})
 
@@ -221,6 +237,10 @@ def configure(settings=None):
     filters.setdefault(
         "contains_valid_uris",
         "warehouse.filters:contains_valid_uris"
+    )
+    filters.setdefault(
+        "format_package_type",
+        "warehouse.filters:format_package_type"
     )
 
     # We also want to register some global functions for Jinja
@@ -354,6 +374,10 @@ def configure(settings=None):
 
     # Protect against cache poisoning via the X-Vhm-Root headers.
     config.add_wsgi_middleware(VhmRootRemover)
+
+    # Fix our host header when getting sent upload.pypi.io as a HOST.
+    # TODO: Remove this, this is at the wrong layer.
+    config.add_wsgi_middleware(HostRewrite)
 
     # We want Raven to be the last things we add here so that it's the outer
     # most WSGI middleware.

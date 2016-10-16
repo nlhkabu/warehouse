@@ -1,5 +1,8 @@
 db:
   image: postgres:9.5
+  ports:
+    # 5432 may already in use by another PostgreSQL on host
+    - "5433:5432"
 
 redis:
   image: redis:latest
@@ -32,6 +35,7 @@ app:
     - ./docs:/app/docs:z
     - ./warehouse:/app/warehouse:z
     - ./tests:/app/tests:z
+    - ./htmlcov:/app/htmlcov:z
   environment:
     WAREHOUSE_ENV: development
     WAREHOUSE_TOKEN: insecuretoken
@@ -50,6 +54,7 @@ app:
     FILES_BACKEND: "warehouse.packaging.services.LocalFileStorage path=/app/data/packages/ url=http://files.example.com/packages/{path}"
     RECAPTCHA_SITE_KEY: "${RECAPTCHA_SITE_KEY}"
     RECAPTCHA_SECRET_KEY: "${RECAPTCHA_SECRET_KEY}"
+    STATUSPAGE_URL: https://2p66nmmycsj3.statuspage.io
 
 web:
   extends:

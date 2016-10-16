@@ -19,7 +19,7 @@ from pyramid import renderers
 from pyramid.tweens import EXCVIEW
 
 from warehouse import config
-from warehouse.utils.wsgi import ProxyFixer, VhmRootRemover
+from warehouse.utils.wsgi import ProxyFixer, VhmRootRemover, HostRewrite
 
 
 class TestRequireHTTPSTween:
@@ -247,6 +247,7 @@ def test_configure(monkeypatch, settings, environment, other_settings):
         "warehouse.env": environment,
         "warehouse.commit": None,
         "site.name": "Warehouse",
+        "mail.ssl": True
     }
 
     if environment == config.Environment.development:
@@ -288,6 +289,7 @@ def test_configure(monkeypatch, settings, environment, other_settings):
     assert configurator_obj.add_wsgi_middleware.calls == [
         pretend.call(ProxyFixer, token="insecure token", num_proxies=1),
         pretend.call(VhmRootRemover),
+        pretend.call(HostRewrite),
     ]
     assert configurator_obj.include.calls == (
         [pretend.call(".csrf")] +
@@ -302,6 +304,15 @@ def test_configure(monkeypatch, settings, environment, other_settings):
         ] + [
             pretend.call(".logging"),
             pretend.call("pyramid_jinja2"),
+        ] + [
+            pretend.call(x) for x in [
+                (
+                    "pyramid_mailer.debug"
+                    if environment == config.Environment.development
+                    else "pyramid_mailer"
+                ),
+            ]
+        ] + [
             pretend.call("pyramid_tm"),
             pretend.call("pyramid_services"),
             pretend.call("pyramid_rpc.xmlrpc"),

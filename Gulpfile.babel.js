@@ -34,7 +34,7 @@ let webpackConfig = {
         test: /\.js$/,
         exclude: /node_modules/,
         loaders: [
-          { loader: "babel", query: { presets: ["es2015-native-modules"] } },
+          { loader: "babel", query: { presets: ["es2015"] } },
         ],
       },
     ],
@@ -66,7 +66,6 @@ let webpackConfig = {
 gulp.task("dist:js", () => {
   let files = [
     path.join(staticPrefix, "js", "warehouse", "index.js"),
-    path.join(staticPrefix, "js", "main.js"),
   ];
 
   return gulp.src(files)
@@ -146,7 +145,9 @@ gulp.task("dist:font-awesome",
 
 gulp.task("dist:images", () => {
   return gulp.src(path.join(staticPrefix, "images", "**", "*"))
-              .pipe(gulpImage())
+              .pipe(gulpImage({
+                "svgo": false,  // SVGO is currently broken.
+              }))
               .pipe(gulp.dest(path.join(distPath, "images")));
 });
 
@@ -180,7 +181,10 @@ gulp.task("dist:manifest", () => {
 
 gulp.task("dist:compress:gz", () => {
   return gulp.src(path.join(distPath, "**", "*"))
-              .pipe(gzip({ gzipOptions: { level: 9, memLevel: 9 }}))
+              .pipe(gzip({
+                skipGrowingFiles: true,
+                gzipOptions: { level: 9, memLevel: 9 },
+              }))
               .pipe(gulp.dest(distPath));
 });
 
@@ -200,7 +204,7 @@ gulp.task("dist:compress:br:generic", () => {
   ];
 
   return gulp.src(paths, { base: distPath })
-              .pipe(brotli.compress({ mode: 0, quality: 11 }))
+              .pipe(brotli.compress({skipLarger: true, mode: 0, quality: 11}))
               .pipe(gulp.dest(distPath));
 });
 
@@ -215,7 +219,7 @@ gulp.task("dist:compress:br:text", () => {
   ];
 
   return gulp.src(paths, { base: distPath })
-              .pipe(brotli.compress({ mode: 1, quality: 11 }))
+              .pipe(brotli.compress({skipLarger: true, mode: 1, quality: 11}))
               .pipe(gulp.dest(distPath));
 });
 
@@ -262,7 +266,6 @@ gulp.task("watch", ["dist"], () => {
 
   gulpWatch(
     watchPaths,
-    { usePolling: true },
     gulpBatch((_, done) => { gulp.start("dist", done); })
   );
 });

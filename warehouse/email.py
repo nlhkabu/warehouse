@@ -9,3 +9,24 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+from pyramid_mailer import get_mailer
+from pyramid_mailer.message import Message
+
+from warehouse import celery
+
+
+@celery.task(bind=True, ignore_result=True, acks_late=True)
+def send_email(task, request, body, recipients, subject):
+
+    mailer = get_mailer(request)
+    message = Message(
+        body=body,
+        recipients=recipients,
+        sender=request.registry.settings.get('mail.sender'),
+        subject=subject
+    )
+    try:
+        mailer.send_immediately(message)
+    except Exception as exc:
+        task.retry(exc=exc)

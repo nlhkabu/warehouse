@@ -401,6 +401,27 @@ class TestFileValidation:
 
         assert legacy._is_valid_dist_file(f, "sdist")
 
+    def test_zipfile_supported_compression(self, tmpdir):
+        f = str(tmpdir.join("test.zip"))
+
+        with zipfile.ZipFile(f, "w") as zfp:
+            zfp.writestr("PKG-INFO", b"this is the package info")
+            zfp.writestr("1.txt", b"1", zipfile.ZIP_STORED)
+            zfp.writestr("2.txt", b"2", zipfile.ZIP_DEFLATED)
+
+        assert legacy._is_valid_dist_file(f, "")
+
+    @pytest.mark.parametrize("method", [zipfile.ZIP_BZIP2, zipfile.ZIP_LZMA])
+    def test_zipfile_unsupported_compression(self, tmpdir, method):
+        f = str(tmpdir.join("test.zip"))
+
+        with zipfile.ZipFile(f, "w") as zfp:
+            zfp.writestr("1.txt", b"1", zipfile.ZIP_STORED)
+            zfp.writestr("2.txt", b"2", zipfile.ZIP_DEFLATED)
+            zfp.writestr("3.txt", b"3", method)
+
+        assert not legacy._is_valid_dist_file(f, "")
+
     def test_egg_no_pkg_info(self, tmpdir):
         f = str(tmpdir.join("test.egg"))
 
@@ -848,6 +869,69 @@ class TestFileUpload:
 
         assert resp.status_code == 400
         assert resp.status == "400 Invalid distribution file."
+
+    def test_upload_fails_with_legacy_type(self, pyramid_config, db_request):
+        pyramid_config.testing_securitypolicy(userid=1)
+
+        user = UserFactory.create()
+        project = ProjectFactory.create()
+        release = ReleaseFactory.create(project=project, version="1.0")
+        RoleFactory.create(user=user, project=project)
+
+        filename = "{}-{}.tar.gz".format(project.name, release.version)
+
+        db_request.POST = MultiDict({
+            "metadata_version": "1.2",
+            "name": project.name,
+            "version": release.version,
+            "filetype": "bdist_dumb",
+            "pyversion": "2.7",
+            "md5_digest": "335c476dc930b959dda9ec82bd65ef19",
+            "content": pretend.stub(
+                filename=filename,
+                file=io.BytesIO(b"A fake file."),
+                type="application/tar",
+            ),
+        })
+
+        with pytest.raises(HTTPBadRequest) as excinfo:
+            legacy.file_upload(db_request)
+
+        resp = excinfo.value
+
+        assert resp.status_code == 400
+        assert resp.status == "400 Unknown type of file."
+
+    def test_upload_fails_with_legacy_ext(self, pyramid_config, db_request):
+        pyramid_config.testing_securitypolicy(userid=1)
+
+        user = UserFactory.create()
+        project = ProjectFactory.create()
+        release = ReleaseFactory.create(project=project, version="1.0")
+        RoleFactory.create(user=user, project=project)
+
+        filename = "{}-{}.tar.bz2".format(project.name, release.version)
+
+        db_request.POST = MultiDict({
+            "metadata_version": "1.2",
+            "name": project.name,
+            "version": release.version,
+            "filetype": "sdist",
+            "md5_digest": "335c476dc930b959dda9ec82bd65ef19",
+            "content": pretend.stub(
+                filename=filename,
+                file=io.BytesIO(b"A fake file."),
+                type="application/tar",
+            ),
+        })
+
+        with pytest.raises(HTTPBadRequest) as excinfo:
+            legacy.file_upload(db_request)
+
+        resp = excinfo.value
+
+        assert resp.status_code == 400
+        assert resp.status == "400 Invalid file extension."
 
     @pytest.mark.parametrize("sig", [b"lol nope"])
     def test_upload_fails_with_invalid_signature(self, pyramid_config,
@@ -1419,6 +1503,96 @@ class TestFileUpload:
                 "10.10.10.30",
             ),
         ]
+
+    def test_upload_succeeds_with_legacy_ext(self, tmpdir, monkeypatch,
+                                             pyramid_config, db_request):
+        monkeypatch.setattr(tempfile, "tempdir", str(tmpdir))
+
+        pyramid_config.testing_securitypolicy(userid=1)
+
+        user = UserFactory.create()
+        project = ProjectFactory.create(allow_legacy_files=True)
+        release = ReleaseFactory.create(project=project, version="1.0")
+        RoleFactory.create(user=user, project=project)
+
+        filename = "{}-{}.tar.bz2".format(project.name, release.version)
+
+        db_request.user = user
+        db_request.client_addr = "10.10.10.30"
+        db_request.POST = MultiDict({
+            "metadata_version": "1.2",
+            "name": project.name,
+            "version": release.version,
+            "filetype": "sdist",
+            "pyversion": "source",
+            "md5_digest": "335c476dc930b959dda9ec82bd65ef19",
+            "content": pretend.stub(
+                filename=filename,
+                file=io.BytesIO(b"A fake file."),
+                type="application/tar",
+            ),
+        })
+
+        def storage_service_store(path, file_path, *, meta):
+            with open(file_path, "rb") as fp:
+                assert fp.read() == b"A fake file."
+
+        storage_service = pretend.stub(store=storage_service_store)
+        db_request.find_service = lambda svc: storage_service
+
+        monkeypatch.setattr(
+            legacy,
+            "_is_valid_dist_file", lambda *a, **kw: True,
+        )
+
+        resp = legacy.file_upload(db_request)
+
+        assert resp.status_code == 200
+
+    def test_upload_succeeds_with_legacy_type(self, tmpdir, monkeypatch,
+                                              pyramid_config, db_request):
+        monkeypatch.setattr(tempfile, "tempdir", str(tmpdir))
+
+        pyramid_config.testing_securitypolicy(userid=1)
+
+        user = UserFactory.create()
+        project = ProjectFactory.create(allow_legacy_files=True)
+        release = ReleaseFactory.create(project=project, version="1.0")
+        RoleFactory.create(user=user, project=project)
+
+        filename = "{}-{}.tar.gz".format(project.name, release.version)
+
+        db_request.user = user
+        db_request.client_addr = "10.10.10.30"
+        db_request.POST = MultiDict({
+            "metadata_version": "1.2",
+            "name": project.name,
+            "version": release.version,
+            "filetype": "bdist_dumb",
+            "pyversion": "3.5",
+            "md5_digest": "335c476dc930b959dda9ec82bd65ef19",
+            "content": pretend.stub(
+                filename=filename,
+                file=io.BytesIO(b"A fake file."),
+                type="application/tar",
+            ),
+        })
+
+        def storage_service_store(path, file_path, *, meta):
+            with open(file_path, "rb") as fp:
+                assert fp.read() == b"A fake file."
+
+        storage_service = pretend.stub(store=storage_service_store)
+        db_request.find_service = lambda svc: storage_service
+
+        monkeypatch.setattr(
+            legacy,
+            "_is_valid_dist_file", lambda *a, **kw: True,
+        )
+
+        resp = legacy.file_upload(db_request)
+
+        assert resp.status_code == 200
 
     @pytest.mark.parametrize("plat", ["linux_x86_64", "linux_x86_64.win32"])
     def test_upload_fails_with_unsupported_wheel_plat(self, monkeypatch,
