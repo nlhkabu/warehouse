@@ -20,9 +20,23 @@ import pytest
 from pyramid.httpexceptions import HTTPMovedPermanently, HTTPSeeOther
 
 from warehouse.accounts import views
-from warehouse.accounts.interfaces import IUserService
+from warehouse.accounts.interfaces import IUserService, TooManyFailedLogins
 
 from ...common.db.accounts import UserFactory
+
+
+class TestFailedLoginView:
+    exc = TooManyFailedLogins(resets_in=datetime.timedelta(seconds=600))
+    request = pretend.stub()
+
+    resp = views.failed_logins(exc, request)
+
+    assert resp.status == "429 Too Many Failed Login Attempts"
+    assert resp.detail == (
+        "There have been too many unsuccessful login attempts. Please try "
+        "again later."
+    )
+    assert dict(resp.headers).get("Retry-After") == "600"
 
 
 class TestUserProfile:
@@ -308,3 +322,21 @@ class TestRegister:
         result = views.register(pyramid_request)
         assert isinstance(result, HTTPSeeOther)
         assert result.headers["Location"] == "/"
+
+
+class TestClientSideIncludes:
+
+    def test_edit_gravatar_csi_returns_user(self, db_request):
+        user = UserFactory.create()
+        assert views.edit_gravatar_csi(user, db_request) == {
+            "user": user,
+        }
+
+
+class TestProfileCallout:
+
+    def test_profile_callout_returns_user(self):
+        user = pretend.stub()
+        request = pretend.stub()
+
+        assert views.profile_callout(user, request) == {"user": user}

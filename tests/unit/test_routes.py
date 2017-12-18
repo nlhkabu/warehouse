@@ -63,11 +63,17 @@ def test_routes(warehouse):
         def add_xmlrpc_endpoint(endpoint, pattern, header, domain=None):
             pass
 
+        @staticmethod
+        @pretend.call_recorder
+        def add_policy(name, filename):
+            pass
+
     config = FakeConfig()
     includeme(config)
 
     assert config.add_route.calls == [
         pretend.call("health", "/_health/"),
+        pretend.call("force-status", "/_force-status/{status:[45]\d\d}/"),
         pretend.call('index', '/', domain=warehouse),
         pretend.call("robots.txt", "/robots.txt", domain=warehouse),
         pretend.call("opensearch.xml", "/opensearch.xml", domain=warehouse),
@@ -80,6 +86,18 @@ def test_routes(warehouse):
         pretend.call(
             "includes.current-user-indicator",
             "/_includes/current-user-indicator/",
+            domain=warehouse,
+        ),
+        pretend.call(
+            "includes.flash-messages",
+            "/_includes/flash-messages/",
+            domain=warehouse,
+        ),
+        pretend.call(
+            "includes.current-user-profile-callout",
+            "/_includes/current-user-profile-callout/{username}",
+            factory="warehouse.accounts.models:UserFactory",
+            traverse="/{username}",
             domain=warehouse,
         ),
         pretend.call("search", "/search/", domain=warehouse),
@@ -95,6 +113,13 @@ def test_routes(warehouse):
         pretend.call(
             "accounts.register",
             "/account/register/",
+            domain=warehouse,
+        ),
+        pretend.call(
+            "accounts.edit_gravatar",
+            "/user/{username}/edit_gravatar/",
+            factory="warehouse.accounts.models:UserFactory",
+            traverse="/{username}",
             domain=warehouse,
         ),
         pretend.call(
@@ -206,4 +231,8 @@ def test_routes(warehouse):
             header="Content-Type:text/xml",
             domain=warehouse,
         ),
+    ]
+
+    assert config.add_policy.calls == [
+        pretend.call("terms-of-use", "terms.md"),
     ]

@@ -1,2 +1,1 @@
-gunicorn>=19.4
-setproctitle
+Twisted[http2,tls]>=16.6.0

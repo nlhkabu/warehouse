@@ -38,7 +38,7 @@ def _project_docs(db):
                    (joinedload(Release.project)
                     .load_only("normalized_name", "name")
                     .joinedload(Project.releases)
-                    .load_only("version")),
+                    .load_only("version", "is_prerelease")),
                    joinedload(Release._classifiers).load_only("classifier"))
           .distinct(Release.name)
           .order_by(Release.name, Release._pypi_ordering.desc())
@@ -70,6 +70,7 @@ def reindex(config, **kwargs):
     random_token = binascii.hexlify(os.urandom(5)).decode("ascii")
     new_index_name = "{}-{}".format(index_base, random_token)
     doc_types = config.registry.get("search.doc_types", set())
+    shards = config.registry.get("elasticsearch.shards", 1)
 
     # Create the new index with zero replicas and index refreshes disabled
     # while we are bulk indexing.
@@ -77,11 +78,11 @@ def reindex(config, **kwargs):
         new_index_name,
         doc_types,
         using=client,
-        shards=config.registry.get("elasticsearch.shards", 1),
+        shards=shards,
         replicas=0,
         interval="-1",
     )
-    new_index.create()
+    new_index.create(wait_for_active_shards=shards)
 
     # From this point on, if any error occurs, we want to be able to delete our
     # in progress index.
@@ -90,7 +91,7 @@ def reindex(config, **kwargs):
 
         for _ in parallel_bulk(client, _project_docs(db)):
             pass
-    except:
+    except:  # noqa
         new_index.delete()
         raise
     finally:

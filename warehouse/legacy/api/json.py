@@ -42,7 +42,9 @@ def json_project(project, request):
         release = (
             request.db.query(Release)
                       .filter(Release.project == project)
-                      .order_by(Release._pypi_ordering.desc())
+                      .order_by(
+                          Release.is_prerelease.nullslast(),
+                          Release._pypi_ordering.desc())
                       .limit(1)
                       .one()
         )
@@ -123,7 +125,9 @@ def json_release(release, request):
                     "sha256": f.sha256_digest,
                 },
                 "size": f.size,
-                "downloads": f.downloads,
+                # TODO: Remove this once we've had a long enough time with it
+                #       here to consider it no longer in use.
+                "downloads": -1,
                 "upload_time": f.upload_time.strftime("%Y-%m-%dT%H:%M:%S"),
                 "url": request.route_url("packaging.file", path=f.path),
             }
@@ -164,6 +168,7 @@ def json_release(release, request):
                 name=project.name,
                 version=release.version,
             ),
+            "requires_dist": list(release.requires_dist),
             "docs_url": project.documentation_url,
             "bugtrack_url": project.bugtrack_url,
             "home_page": release.home_page,

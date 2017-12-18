@@ -66,6 +66,41 @@ class TestJSONProject:
         assert resp is response
         assert json_release.calls == [pretend.call(release, db_request)]
 
+    def test_with_prereleases(self, monkeypatch, db_request):
+        project = ProjectFactory.create()
+
+        ReleaseFactory.create(project=project, version="1.0")
+        ReleaseFactory.create(project=project, version="2.0")
+        ReleaseFactory.create(project=project, version="4.0.dev0")
+
+        release = ReleaseFactory.create(project=project, version="3.0")
+
+        response = pretend.stub()
+        json_release = pretend.call_recorder(lambda ctx, request: response)
+        monkeypatch.setattr(json, "json_release", json_release)
+
+        resp = json.json_project(project, db_request)
+
+        assert resp is response
+        assert json_release.calls == [pretend.call(release, db_request)]
+
+    def test_only_prereleases(self, monkeypatch, db_request):
+        project = ProjectFactory.create()
+
+        ReleaseFactory.create(project=project, version="1.0.dev0")
+        ReleaseFactory.create(project=project, version="2.0.dev0")
+
+        release = ReleaseFactory.create(project=project, version="3.0.dev0")
+
+        response = pretend.stub()
+        json_release = pretend.call_recorder(lambda ctx, request: response)
+        monkeypatch.setattr(json, "json_release", json_release)
+
+        resp = json.json_project(project, db_request)
+
+        assert resp is response
+        assert json_release.calls == [pretend.call(release, db_request)]
+
 
 class TestJSONRelease:
 
@@ -107,6 +142,7 @@ class TestJSONRelease:
             for r in releases[:-1]
         ]
         user = UserFactory.create()
+        JournalEntryFactory.reset_sequence()
         je = JournalEntryFactory.create(
             name=project.name,
             submitted_by=user,
@@ -173,6 +209,7 @@ class TestJSONRelease:
                 "platform": None,
                 "project_url": "/the/fake/url/",
                 "release_url": "/the/fake/url/",
+                "requires_dist": [],
                 "requires_python": None,
                 "summary": None,
                 "version": "2.0",
@@ -181,7 +218,7 @@ class TestJSONRelease:
                 "1.0": [
                     {
                         "comment_text": None,
-                        "downloads": 0,
+                        "downloads": -1,
                         "filename": files[0].filename,
                         "has_sig": True,
                         "md5_digest": files[0].md5_digest,
@@ -201,7 +238,7 @@ class TestJSONRelease:
                 "2.0": [
                     {
                         "comment_text": None,
-                        "downloads": 0,
+                        "downloads": -1,
                         "filename": files[1].filename,
                         "has_sig": True,
                         "md5_digest": files[1].md5_digest,
@@ -223,7 +260,7 @@ class TestJSONRelease:
             "urls": [
                 {
                     "comment_text": None,
-                    "downloads": 0,
+                    "downloads": -1,
                     "filename": files[1].filename,
                     "has_sig": True,
                     "md5_digest": files[1].md5_digest,

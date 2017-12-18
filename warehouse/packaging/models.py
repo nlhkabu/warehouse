@@ -19,9 +19,10 @@ from pyramid.security import Allow
 from pyramid.threadlocal import get_current_request
 from sqlalchemy import (
     CheckConstraint, Column, Enum, ForeignKey, ForeignKeyConstraint, Index,
-    Boolean, DateTime, Integer, Table, Text,
+    Boolean, DateTime, Integer, Float, Table, Text,
 )
 from sqlalchemy import func, orm, sql
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import validates
 from sqlalchemy.orm.exc import NoResultFound
 from sqlalchemy.ext.associationproxy import association_proxy
@@ -105,6 +106,7 @@ class Project(SitemapMixin, db.ModelBase):
         nullable=False,
         server_default=sql.false(),
     )
+    zscore = Column(Float, nullable=True)
 
     users = orm.relationship(
         User,
@@ -134,7 +136,9 @@ class Project(SitemapMixin, db.ModelBase):
 
     def __acl__(self):
         session = orm.object_session(self)
-        acls = []
+        acls = [
+            (Allow, "group:admins", "admin"),
+        ]
 
         # Get all of the users for this project.
         query = session.query(Role).filter(Role.project == self)
@@ -230,6 +234,7 @@ class Release(db.ModelBase):
         primary_key=True,
     )
     version = Column(Text, primary_key=True)
+    is_prerelease = orm.column_property(func.pep440_is_prerelease(version))
     author = Column(Text)
     author_email = Column(Text)
     maintainer = Column(Text)
@@ -343,29 +348,44 @@ class Release(db.ModelBase):
 
     @property
     def has_meta(self):
-        return any([self.keywords,
+        return any([self.license,
+                    self.keywords,
                     self.author, self.author_email,
-                    self.maintainer, self.maintainer_email])
+                    self.maintainer, self.maintainer_email,
+                    self.requires_python])
 
 
 class File(db.Model):
 
     __tablename__ = "release_files"
-    __table_args__ = (
-        ForeignKeyConstraint(
-            ["name", "version"],
-            ["releases.name", "releases.version"],
-            onupdate="CASCADE",
-        ),
 
-        CheckConstraint("sha256_digest ~* '^[A-F0-9]{64}$'"),
-        CheckConstraint("blake2_256_digest ~* '^[A-F0-9]{64}$'"),
+    @declared_attr
+    def __table_args__(cls):  # noqa
+        return (
+            ForeignKeyConstraint(
+                ["name", "version"],
+                ["releases.name", "releases.version"],
+                onupdate="CASCADE",
+            ),
 
-        Index("release_files_name_idx", "name"),
-        Index("release_files_name_version_idx", "name", "version"),
-        Index("release_files_packagetype_idx", "packagetype"),
-        Index("release_files_version_idx", "version"),
-    )
+            CheckConstraint("sha256_digest ~* '^[A-F0-9]{64}$'"),
+            CheckConstraint("blake2_256_digest ~* '^[A-F0-9]{64}$'"),
+
+            Index("release_files_name_version_idx", "name", "version"),
+            Index("release_files_packagetype_idx", "packagetype"),
+            Index("release_files_version_idx", "version"),
+            Index(
+                "release_files_single_sdist",
+                "name",
+                "version",
+                "packagetype",
+                unique=True,
+                postgresql_where=(
+                    (cls.packagetype == 'sdist') &
+                    (cls.allow_multiple_sdist == False)  # noqa
+                ),
+            ),
+        )
 
     name = Column(Text)
     version = Column(Text)
@@ -385,8 +405,19 @@ class File(db.Model):
     md5_digest = Column(Text, unique=True, nullable=False)
     sha256_digest = Column(CIText, unique=True, nullable=False)
     blake2_256_digest = Column(CIText, unique=True, nullable=False)
-    downloads = Column(Integer, server_default=sql.text("0"))
     upload_time = Column(DateTime(timezone=False), server_default=func.now())
+    # We need this column to allow us to handle the currently existing "double"
+    # sdists that exist in our database. Eventually we should try to get rid
+    # of all of them and then remove this column.
+    allow_multiple_sdist = Column(
+        Boolean,
+        nullable=False,
+        server_default=sql.false(),
+    )
+
+    # TODO: Once Legacy PyPI is gone, then we should remove this column
+    #       completely as we no longer use it.
+    downloads = Column(Integer, server_default=sql.text("0"))
 
     @hybrid_property
     def pgp_path(self):
@@ -472,3 +503,30 @@ class JournalEntry(db.ModelBase):
     )
     submitted_by = orm.relationship(User)
     submitted_from = Column(Text)
+
+
+class BlacklistedProject(db.Model):
+
+    __tablename__ = "blacklist"
+    __table_args__ = (
+        CheckConstraint(
+            "name ~* '^([A-Z0-9]|[A-Z0-9][A-Z0-9._-]*[A-Z0-9])$'::text",
+            name="blacklist_valid_name",
+        ),
+    )
+
+    __repr__ = make_repr("name")
+
+    created = Column(
+        DateTime(timezone=False),
+        nullable=False,
+        server_default=sql.func.now(),
+    )
+    name = Column(Text, unique=True, nullable=False)
+    _blacklisted_by = Column(
+        "blacklisted_by",
+        UUID(as_uuid=True),
+        ForeignKey("accounts_user.id"),
+    )
+    blacklisted_by = orm.relationship(User)
+    comment = Column(Text, nullable=False, server_default="")

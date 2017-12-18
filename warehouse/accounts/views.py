@@ -11,22 +11,43 @@
 # limitations under the License.
 
 import datetime
+import hashlib
 
-from pyblake2 import blake2b
-from pyramid.httpexceptions import HTTPMovedPermanently, HTTPSeeOther
+from pyramid.httpexceptions import (
+    HTTPMovedPermanently, HTTPSeeOther, HTTPTooManyRequests,
+)
 from pyramid.security import remember, forget
 from pyramid.view import view_config
 from sqlalchemy.orm import joinedload
 
 from warehouse.accounts import REDIRECT_FIELD_NAME
 from warehouse.accounts import forms
-from warehouse.accounts.interfaces import IUserService
+from warehouse.accounts.interfaces import IUserService, TooManyFailedLogins
 from warehouse.cache.origin import origin_cache
 from warehouse.packaging.models import Project, Release
 from warehouse.utils.http import is_safe_url
 
 
 USER_ID_INSECURE_COOKIE = "user_id__insecure"
+
+
+@view_config(context=TooManyFailedLogins)
+def failed_logins(exc, request):
+    resp = HTTPTooManyRequests(
+        "There have been too many unsuccessful login attempts. Please try "
+        "again later.",
+        retry_after=exc.resets_in.total_seconds(),
+    )
+
+    # TODO: This is kind of gross, but we need it for as long as the legacy
+    #       upload API exists and is supported. Once we get rid of that we can
+    #       get rid of this as well.
+    resp.status = "{} {}".format(
+        resp.status_code,
+        "Too Many Failed Login Attempts",
+    )
+
+    return resp
 
 
 @view_config(
@@ -105,7 +126,7 @@ def login(request, redirect_field_name=REDIRECT_FIELD_NAME,
         # here, even though it really shouldn't matter.
         resp.set_cookie(
             USER_ID_INSECURE_COOKIE,
-            blake2b(
+            hashlib.blake2b(
                 str(userid).encode("ascii"),
                 person=b"warehouse.userid",
             ).hexdigest().lower(),
@@ -212,6 +233,15 @@ def register(request, _form_class=forms.RegistrationForm):
     return {"form": form}
 
 
+@view_config(
+    route_name="accounts.edit_gravatar",
+    renderer="accounts/csi/edit_gravatar.csi.html",
+    uses_session=True,
+)
+def edit_gravatar_csi(user, request):
+    return {"user": user}
+
+
 def _login_user(request, userid):
         # We have a session factory associated with this request, so in order
         # to protect against session fixation attacks we're going to make sure
@@ -251,3 +281,12 @@ def _login_user(request, userid):
         user_service.update_user(userid, last_login=datetime.datetime.utcnow())
 
         return headers
+
+
+@view_config(
+    route_name="includes.current-user-profile-callout",
+    renderer="includes/accounts/profile-callout.html",
+    uses_session=True,
+)
+def profile_callout(user, request):
+    return {"user": user}

@@ -97,15 +97,20 @@ def test_activate_hook(path, expected):
     assert config.activate_hook(request) == expected
 
 
-def test_template_view():
+@pytest.mark.parametrize("route_kw", [None, {}, {"foo": "bar"}])
+def test_template_view(route_kw):
     configobj = pretend.stub(
         add_route=pretend.call_recorder(lambda *a, **kw: None),
         add_view=pretend.call_recorder(lambda *a, **kw: None),
     )
 
-    config.template_view(configobj, "test", "/test/", "test.html")
+    config.template_view(configobj, "test", "/test/", "test.html",
+                         route_kw=route_kw)
 
-    assert configobj.add_route.calls == [pretend.call("test", "/test/")]
+    assert configobj.add_route.calls == [
+        pretend.call(
+            "test", "/test/", **({} if route_kw is None else route_kw)),
+    ]
     assert configobj.add_view.calls == [
         pretend.call(renderer="test.html", route_name="test"),
     ]
@@ -211,6 +216,7 @@ def test_configure(monkeypatch, settings, environment, other_settings):
     configurator_settings = other_settings.copy()
     configurator_obj = pretend.stub(
         registry=FakeRegistry(),
+        set_root_factory=pretend.call_recorder(lambda rf: None),
         include=pretend.call_recorder(lambda include: None),
         add_directive=pretend.call_recorder(lambda name, fn, **k: None),
         add_wsgi_middleware=pretend.call_recorder(lambda m, *a, **kw: None),
@@ -225,6 +231,8 @@ def test_configure(monkeypatch, settings, environment, other_settings):
         add_tween=pretend.call_recorder(lambda tween_factory, **kw: None),
         add_static_view=pretend.call_recorder(lambda *a, **kw: None),
         add_cache_buster=pretend.call_recorder(lambda spec, buster: None),
+        whitenoise_serve_static=pretend.call_recorder(lambda *a, **kw: None),
+        whitenoise_add_files=pretend.call_recorder(lambda *a, **kw: None),
         scan=pretend.call_recorder(lambda ignore: None),
         commit=pretend.call_recorder(lambda: None),
     )
@@ -286,6 +294,9 @@ def test_configure(monkeypatch, settings, environment, other_settings):
 
     assert configurator_cls.calls == [pretend.call(settings=expected_settings)]
     assert result is configurator_obj
+    assert configurator_obj.set_root_factory.calls == [
+        pretend.call(config.RootFactory),
+    ]
     assert configurator_obj.add_wsgi_middleware.calls == [
         pretend.call(ProxyFixer, token="insecure token", num_proxies=1),
         pretend.call(VhmRootRemover),
@@ -313,6 +324,7 @@ def test_configure(monkeypatch, settings, environment, other_settings):
                 ),
             ]
         ] + [
+            pretend.call("pyramid_retry"),
             pretend.call("pyramid_tm"),
             pretend.call("pyramid_services"),
             pretend.call("pyramid_rpc.xmlrpc"),
@@ -320,9 +332,13 @@ def test_configure(monkeypatch, settings, environment, other_settings):
             pretend.call(".domain"),
             pretend.call(".i18n"),
             pretend.call(".db"),
+            pretend.call(".rate_limiting"),
+            pretend.call(".static"),
+            pretend.call(".policy"),
             pretend.call(".search"),
             pretend.call(".aws"),
-            pretend.call(".celery"),
+            pretend.call(".gcloud"),
+            pretend.call(".tasks"),
             pretend.call(".sessions"),
             pretend.call(".cache.http"),
             pretend.call(".cache.origin"),
@@ -330,9 +346,11 @@ def test_configure(monkeypatch, settings, environment, other_settings):
             pretend.call(".packaging"),
             pretend.call(".redirects"),
             pretend.call(".routes"),
+            pretend.call(".admin"),
             pretend.call(".forklift"),
             pretend.call(".raven"),
             pretend.call(".csp"),
+            pretend.call(".referrer_policy"),
             pretend.call(".recaptcha"),
             pretend.call(".http"),
         ] + [
@@ -354,8 +372,8 @@ def test_configure(monkeypatch, settings, environment, other_settings):
     ]
     assert configurator_obj.add_settings.calls == [
         pretend.call({"jinja2.newstyle": True}),
+        pretend.call({"retry.attempts": 3}),
         pretend.call({
-            "tm.attempts": 3,
             "tm.manager_hook": mock.ANY,
             "tm.activate_hook": config.activate_hook,
             "tm.annotate_user": False,
@@ -366,7 +384,7 @@ def test_configure(monkeypatch, settings, environment, other_settings):
             },
         }),
     ]
-    add_settings_dict = configurator_obj.add_settings.calls[1].args[0]
+    add_settings_dict = configurator_obj.add_settings.calls[2].args[0]
     assert add_settings_dict["tm.manager_hook"](pretend.stub()) is \
         transaction_manager
     assert configurator_obj.add_tween.calls == [
@@ -399,6 +417,16 @@ def test_configure(monkeypatch, settings, environment, other_settings):
             strict=True,
         ),
     ]
+    assert configurator_obj.whitenoise_serve_static.calls == [
+        pretend.call(
+            autorefresh=False,
+            max_age=315360000,
+            manifest="warehouse:static/dist/manifest.json",
+        ),
+    ]
+    assert configurator_obj.whitenoise_add_files.calls == [
+        pretend.call("warehouse:static/dist/", prefix="/static/"),
+    ]
     assert configurator_obj.add_directive.calls == [
         pretend.call(
             "add_template_view",
@@ -407,7 +435,13 @@ def test_configure(monkeypatch, settings, environment, other_settings):
         ),
     ]
     assert configurator_obj.scan.calls == [
-        pretend.call(ignore=["warehouse.migrations.env", "warehouse.wsgi"]),
+        pretend.call(
+            ignore=[
+                "warehouse.migrations.env",
+                "warehouse.celery",
+                "warehouse.wsgi",
+            ],
+        ),
     ]
     assert configurator_obj.commit.calls == [pretend.call()]
     assert configurator_obj.add_renderer.calls == [
