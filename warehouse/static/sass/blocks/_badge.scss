@@ -86,6 +86,10 @@
       outline: 1px solid darken($base-grey, 50);
     }
   }
+
+  &--no-uppercase {
+    text-transform: none;
+  }
 }
 
 a.badge {
